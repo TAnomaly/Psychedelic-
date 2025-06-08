@@ -6,14 +6,14 @@
 #include <string>
 #include <iostream>
 
-// Pencere boyutları
+// Pencere boyutları - 4K destekli
 const int WIDTH = 1920;
 const int HEIGHT = 1080;
 
 // Shader programları
 GLuint shaderProgram;
-GLuint fractalShader;
-GLuint particleShader;
+GLuint fractalShader;  // Bu değişkenler kullanılmıyor, kaldırılabilir
+GLuint particleShader; // Bu değişkenler kullanılmıyor, kaldırılabilir
 GLuint quadVAO, quadVBO;
 
 // Uniform lokasyonları
@@ -22,17 +22,20 @@ GLint resolutionLocation;
 GLint zoomLocation;
 GLint offsetLocation;
 GLint juliaParamLocation;
-GLint colorParamsLocation;
+GLint modeLocation;
+GLint complexityLocation;
 
-// Fraktal parametreleri
-float zoom = 1.0f;
+// Fraktal parametreleri - Geliştirilmiş
+float zoom = 2.5f;
 float offsetX = 0.0f;
 float offsetY = 0.0f;
 float juliaX = -0.4f;
 float juliaY = 0.6f;
 float time_value = 0.0f;
 bool autoRotate = true;
-float rotationSpeed = 0.001f;
+float rotationSpeed = 0.0003f;
+int colorMode = 0;       // Farklı renk paletleri için
+float complexity = 1.0f; // Karmaşıklık seviyesi
 
 // Vertex shader kodu
 const char *vertexShaderSource = R"(
@@ -46,7 +49,7 @@ const char *vertexShaderSource = R"(
     }
 )";
 
-// Fragment shader kodu
+// Fragment shader kodu - Sanatsal ve Psychedelic geliştirmeler
 const char *fragmentShaderSource = R"(
     #version 330 core
     out vec4 FragColor;
@@ -57,82 +60,168 @@ const char *fragmentShaderSource = R"(
     uniform float zoom;
     uniform vec2 offset;
     uniform vec2 juliaParam;
-    uniform vec4 colorParams;
+    uniform int mode;
+    uniform float complexity;
     
-    #define MAX_ITER 1000
+    #define MAX_ITER 200 // Daha hızlı iterasyonlar için düşürüldü, daha akışkan hareket
     #define PI 3.14159265359
+    #define TAU 6.28318530718
     
-    vec3 hsv2rgb(vec3 c) {
-        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    // Psychedelic renk paletleri
+    vec3 psychedelicPalette1(float t) {
+        // Hızlı, canlı, dönen tonlar
+        vec3 color = 0.5 + 0.5 * cos(TAU * (t * 3.0 + vec3(0.0, 0.333, 0.666) + time * 0.5));
+        return clamp(color, 0.0, 1.0); // Renk değerlerini 0-1 aralığında tutmak için
+    }
+
+    vec3 psychedelicPalette2(float t) {
+        // Kontrastlı, şok edici renk geçişleri
+        vec3 c1 = vec3(1.0, 0.0, 0.5); // Magenta
+        vec3 c2 = vec3(0.0, 1.0, 0.8); // Turkuaz
+        vec3 c3 = vec3(1.0, 0.8, 0.0); // Turuncu
+        vec3 c4 = vec3(0.5, 0.0, 1.0); // Mor
+
+        t = fract(t + time * 0.2); // Daha hızlı kayma
+        if (t < 0.25) return mix(c1, c2, smoothstep(0.0, 1.0, t * 4.0));
+        else if (t < 0.5) return mix(c2, c3, smoothstep(0.0, 1.0, (t - 0.25) * 4.0));
+        else if (t < 0.75) return mix(c3, c4, smoothstep(0.0, 1.0, (t - 0.5) * 4.0));
+        else return mix(c4, c1, smoothstep(0.0, 1.0, (t - 0.75) * 4.0));
+    }
+
+    vec3 quantumFlux(float t) {
+        // Kuantum fiziği esinlenmesi, daha dinamik ve parlayan
+        float wave = sin(t * 30.0 + time * 5.0) * 0.5 + 0.5; // Daha hızlı titreşim
+        vec3 photon = vec3(1.0, 1.0, 0.8) * (1.0 + sin(time * 7.0) * 0.1); // Parlama
+        vec3 electron = vec3(0.2, 0.4, 1.0) * (1.0 + cos(time * 6.0) * 0.1);
+        vec3 quantum = vec3(0.8, 0.2, 0.8) * (1.0 + sin(time * 8.0) * 0.1);
+        
+        return mix(mix(photon, electron, wave), quantum, sin(t * 10.0 + time * 3.0) * 0.5 + 0.5);
+    }
+
+    vec3 cosmicPalette(float t) {
+        // Derin uzay ve nebula renkleri, daha akışkan
+        vec3 deep = vec3(0.05, 0.0, 0.2); 
+        vec3 nebula = vec3(0.8, 0.2, 0.9); 
+        vec3 star = vec3(1.0, 0.9, 0.3); 
+        vec3 plasma = vec3(0.0, 0.8, 1.0); 
+        
+        t = fract(t + time * 0.05) * 4.0; // Hafif kayma
+        if(t < 1.0) return mix(deep, nebula, smoothstep(0.0, 1.0, t));
+        else if(t < 2.0) return mix(nebula, star, smoothstep(0.0, 1.0, t-1.0));
+        else if(t < 3.0) return mix(star, plasma, smoothstep(0.0, 1.0, t-2.0));
+        return mix(plasma, deep, smoothstep(0.0, 1.0, t-3.0));
     }
     
-    float mandala(vec2 uv, float time) {
+    // Ana color function
+    vec3 getColor(float t, int colorMode, float time) {
+        switch(colorMode) {
+            case 0: return psychedelicPalette1(t);
+            case 1: return psychedelicPalette2(t);
+            case 2: return quantumFlux(t);
+            case 3: return cosmicPalette(t);
+            default: return psychedelicPalette1(t);
+        }
+    }
+    
+    // Gelişmiş geometrik transformasyonlar
+    vec2 kaleidoscope(vec2 uv, float segments) {
+        float angle = atan(uv.y, uv.x);
+        float radius = length(uv);
+        angle = mod(angle, TAU / segments);
+        angle = abs(angle - PI / segments);
+        return vec2(cos(angle), sin(angle)) * radius;
+    }
+    
+    vec2 fractalDistortion(vec2 uv, float time, float intensity) {
+        // Çoklu fraktal katmanları ve girdap etkisi
+        float scale1 = 3.0, scale2 = 7.0, scale3 = 13.0;
+        
+        vec2 distort = vec2(
+            sin(uv.y * scale1 + time * 1.5) * sin(uv.x * scale2 + time * 1.3) * intensity,
+            cos(uv.x * scale1 + time * 1.7) * cos(uv.y * scale3 + time * 1.9) * intensity
+        );
+        
+        // Girdap deformasyonu
         float angle = atan(uv.y, uv.x);
         float dist = length(uv);
-        float symmetry = 12.0;
-        return sin(symmetry * angle + dist * 5.0 + time) * 0.5 + 0.5;
+        float swirl = sin(dist * 10.0 - time * 2.0) * 0.05 * intensity;
+        angle += swirl;
+        distort += vec2(cos(angle), sin(angle)) * dist * 0.1 * intensity;
+
+        return uv + distort;
     }
     
     void main() {
         vec2 uv = (gl_FragCoord.xy - 0.5 * resolution.xy) / min(resolution.x, resolution.y);
-        uv = uv * 3.0 / zoom + offset;
+        vec2 originalUV = uv;
         
-        // Mandala ve spiral efektleri
-        float mandalaEffect = mandala(uv, time * 0.2) * 0.1;
-        float spiralEffect = sin(length(uv) * 10.0 - atan(uv.y, uv.x) * 2.0 + time) * 0.05;
-        uv += vec2(mandalaEffect + spiralEffect);
+        // Dinamik zoom ve solunum efekti - daha belirgin
+        float breathe = sin(time * 0.7) * 0.2 + 1.0;
+        float dynamicZoom = zoom * (1.0 + sin(time * 0.1) * 0.5);
+        uv = uv * (3.0 / dynamicZoom) * breathe;
         
-        // Julia seti hesaplama
+        // Karmaşıklık seviyesine göre transformasyonlar - daha etkileşimli
+        uv = kaleidoscope(uv, 4.0 + sin(time * 0.4) * 3.0 + complexity * 5.0);
+        
+        // Fraktal distorsiyon - karmaşıklıkla daha yoğun
+        uv = fractalDistortion(uv, time, complexity * 0.5 + sin(time * 0.8) * 0.1);
+        uv += offset;
+        
+        // Julia parametrelerinde harmonic motion - daha hızlı ve geniş
+        vec2 c = juliaParam;
+        c.x += sin(time * 0.25) * 0.2 * complexity;
+        c.y += cos(time * 0.35) * 0.2 * complexity;
+        
+        // Ana fraktal hesaplama
         vec2 z = uv;
         int iter;
+        float smoothIter = 0.0;
+        
         for(iter = 0; iter < MAX_ITER; iter++) {
-            float x = z.x * z.x - z.y * z.y + juliaParam.x;
-            float y = 2.0 * z.x * z.y + juliaParam.y;
+            float x = z.x * z.x - z.y * z.y + c.x;
+            float y = 2.0 * z.x * z.y + c.y;
             
-            if(x*x + y*y > 4.0) break;
+            float magnitudeSq = x*x + y*y;
+            if(magnitudeSq > 4.0) {
+                smoothIter = float(iter) + 1.0 - log2(log2(magnitudeSq));
+                break;
+            }
             z = vec2(x, y);
-            
-            // Deformasyon efekti
-            float deform = sin(time * 0.5) * 0.01;
-            z += vec2(sin(z.y * 5.0 + time) * deform, cos(z.x * 5.0 + time) * deform);
         }
         
         if(iter == MAX_ITER) {
-            FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            // İç bölge için hareketli bir desen
+            float innerPattern = sin(length(originalUV) * 30.0 + time * 10.0) * 0.5 + 0.5;
+            vec3 innerColor = getColor(innerPattern, mode, time) * 0.2;
+            FragColor = vec4(innerColor, 1.0);
         } else {
-            float smooth_iter = float(iter) + 1.0 - log2(log2(dot(z,z)));
-            float hue = mod(smooth_iter * 0.01 + time * 0.1, 1.0);
-            float sat = 0.8 + sin(time + smooth_iter * 0.1) * 0.2;
-            float val = 1.0 - smooth_iter / float(MAX_ITER);
-            val = pow(val, 0.5); // Gamma düzeltme
+            // Gelişmiş renk hesaplaması
+            float normalizedIter = smoothIter / float(MAX_ITER);
+            vec3 color = getColor(normalizedIter, mode, time);
             
-            // Glow efekti
-            float glow = exp(-smooth_iter * 0.02);
-            vec3 color = hsv2rgb(vec3(hue, sat, val));
-            color += vec3(1.0, 0.7, 0.3) * glow;
+            // Artistik efektler - daha fazla parıltı ve titreşim
+            float glow = exp(-smoothIter * 0.01) * (0.5 + sin(time * 5.0) * 0.5);
+            color += getColor(time * 0.2, (mode + 1) % 4, time) * glow * 2.0;
             
-            // Kenar vurgulama
-            float edge = 1.0 - abs(mod(smooth_iter * 0.1 + time, 2.0) - 1.0);
-            color += vec3(0.2, 0.5, 1.0) * edge * edge * 0.5;
+            // Vignette efekti - daha dramatik
+            float vignette = 1.0 - length(originalUV) * 0.8;
+            vignette = smoothstep(0.0, 1.0, vignette);
+            vignette = pow(vignette, 2.0);
+            
+            // Dynamic brightness - daha belirgin nabız atışı
+            float pulse = sin(time * 4.0) * 0.3 + 0.7;
+            color *= vignette * pulse;
+            
+            // HDR ve Tonemap - daha parlak ve dinamik
+            color = color / (0.1 + color);
+            color = pow(color, vec3(1.0 / 2.0));
+
+            // Film grain effect - hafif kumlanma
+            float grain = fract(sin(dot(originalUV * resolution, vec2(12.9898, 78.233))) * 43758.5453);
+            color += (grain - 0.5) * 0.03;
             
             FragColor = vec4(color, 1.0);
         }
-        
-        // Post-processing efektleri
-        vec2 vigUV = (gl_FragCoord.xy / resolution.xy - 0.5) * 2.0;
-        float vignette = 1.0 - dot(vigUV, vigUV) * 0.3;
-        FragColor.rgb *= vignette;
-        
-        // Bloom efekti
-        float brightness = dot(FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-        float bloom = smoothstep(0.7, 1.0, brightness);
-        FragColor.rgb += FragColor.rgb * bloom * 0.5;
-        
-        // Final renk ayarları
-        FragColor.rgb = pow(FragColor.rgb, vec3(0.9)); // Gamma
-        FragColor.rgb = mix(FragColor.rgb, vec3(dot(FragColor.rgb, vec3(0.299, 0.587, 0.114))), 0.1); // Kontrast
     }
 )";
 
@@ -182,7 +271,8 @@ void initShaders()
     zoomLocation = glGetUniformLocation(shaderProgram, "zoom");
     offsetLocation = glGetUniformLocation(shaderProgram, "offset");
     juliaParamLocation = glGetUniformLocation(shaderProgram, "juliaParam");
-    colorParamsLocation = glGetUniformLocation(shaderProgram, "colorParams");
+    modeLocation = glGetUniformLocation(shaderProgram, "mode");
+    complexityLocation = glGetUniformLocation(shaderProgram, "complexity");
 }
 
 // Quad mesh oluşturma
@@ -227,7 +317,8 @@ void display()
     glUniform1f(zoomLocation, zoom);
     glUniform2f(offsetLocation, offsetX, offsetY);
     glUniform2f(juliaParamLocation, juliaX, juliaY);
-    glUniform4f(colorParamsLocation, 1.0f, 1.0f, 1.0f, 1.0f);
+    glUniform1i(modeLocation, colorMode);
+    glUniform1f(complexityLocation, complexity);
 
     // Quad'ı çiz
     glBindVertexArray(quadVAO);
@@ -291,17 +382,56 @@ void keyboard(unsigned char key, int x, int y)
         break;
     case 'r':
         autoRotate = !autoRotate;
+        std::cout << "Auto rotation: " << (autoRotate ? "ON" : "OFF") << std::endl;
         break;
     case '+':
         rotationSpeed *= 1.2f;
+        std::cout << "Rotation speed: " << rotationSpeed << std::endl;
         break;
     case '-':
         rotationSpeed /= 1.2f;
+        std::cout << "Rotation speed: " << rotationSpeed << std::endl;
         break;
     case ' ':
-        zoom = 1.0f;
+        zoom = 2.5f;
         offsetX = 0.0f;
         offsetY = 0.0f;
+        juliaX = -0.4f; // Julia parametresini de sıfırla
+        juliaY = 0.6f;
+        std::cout << "Reset view" << std::endl;
+        break;
+    case 'c':
+        colorMode = (colorMode + 1) % 4; // Toplam 4 renk modu var
+        std::cout << "Color mode: " << colorMode << std::endl;
+        break;
+    case 'C':
+        colorMode = (colorMode + 3) % 4; // Geriye doğru
+        std::cout << "Color mode: " << colorMode << std::endl;
+        break;
+    case 'x':
+        complexity += 0.05f; // Daha ince ayar
+        if (complexity > 1.0f)
+            complexity = 1.0f;
+        std::cout << "Complexity: " << complexity << std::endl;
+        break;
+    case 'X':
+        complexity -= 0.05f; // Daha ince ayar
+        if (complexity < 0.0f)
+            complexity = 0.0f;
+        std::cout << "Complexity: " << complexity << std::endl;
+        break;
+    case 'h':
+        std::cout << "\n=== PSYCHEDELIC JULIA FRACTAL EXPLORER CONTROLS ===" << std::endl;
+        std::cout << "ESC       - Exit" << std::endl;
+        std::cout << "SPACE     - Reset view (zoom, offset, julia param)" << std::endl;
+        std::cout << "R         - Toggle auto rotation of Julia parameter" << std::endl;
+        std::cout << "+/-       - Adjust rotation speed" << std::endl;
+        std::cout << "C/Shift+C - Change color palette" << std::endl;
+        std::cout << "X/Shift+X - Adjust complexity of distortions and animations" << std::endl;
+        std::cout << "Mouse     - Pan (drag) and Zoom (wheel)" << std::endl;
+        std::cout << "H         - Show this help" << std::endl;
+        std::cout << "=====================================================\n"
+                  << std::endl;
         break;
     }
     glutPostRedisplay();
@@ -309,19 +439,27 @@ void keyboard(unsigned char key, int x, int y)
 
 void update(int value)
 {
-    time_value += 0.016f;
+    time_value += 0.016f; // Yaklaşık 60 FPS
 
     if (autoRotate)
     {
-        float angle = rotationSpeed;
+        // Dinamik dönüş hızı, zamanla değişen psychedelic bir etki için
+        float currentRotationSpeed = rotationSpeed * (1.0 + sin(time_value * 0.5) * 0.5);
+        float angle = currentRotationSpeed;
         float tempX = juliaX * cos(angle) - juliaY * sin(angle);
         float tempY = juliaX * sin(angle) + juliaY * cos(angle);
         juliaX = tempX;
         juliaY = tempY;
     }
 
+    // Ek dinamik efektler (opsiyonel, denenebilir)
+    // zoom = 2.5f + sin(time_value * 0.1) * 1.5f; // Zoomda dalgalanma
+    // offsetX = sin(time_value * 0.08) * 0.5f; // Offset'te yatay hareket
+    // offsetY = cos(time_value * 0.12) * 0.5f; // Offset'te dikey hareket
+    // complexity = 0.5f + sin(time_value * 0.2) * 0.5f; // Karmaşıklıkta dalgalanma
+
     glutPostRedisplay();
-    glutTimerFunc(16, update, 0);
+    glutTimerFunc(16, update, 0); // 16 ms sonra tekrar çağır (yaklaşık 60 FPS)
 }
 
 int main(int argc, char **argv)
@@ -329,7 +467,7 @@ int main(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
     glutInitWindowSize(WIDTH, HEIGHT);
-    glutCreateWindow("Ultra HD Julia Fractal");
+    glutCreateWindow("🌈 Psychedelic Julia Fractal Explorer 🌌");
 
     // GLEW başlatma
     GLenum err = glewInit();
@@ -345,6 +483,12 @@ int main(int argc, char **argv)
     // Shader ve quad başlatma
     initShaders();
     initQuad();
+
+    // Başlangıç mesajı
+    std::cout << "\n🌈 PSYCHEDELIC JULIA FRACTAL EXPLORER 🌌" << std::endl;
+    std::cout << "Press 'H' for help and controls" << std::endl;
+    std::cout << "Prepare for a visual journey!\n"
+              << std::endl;
 
     // GLUT callback fonksiyonları
     glutDisplayFunc(display);
