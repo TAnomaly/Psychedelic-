@@ -10,10 +10,8 @@
 const int WIDTH = 1920;
 const int HEIGHT = 1080;
 
-// Shader programları
+// Shader programı
 GLuint shaderProgram;
-GLuint fractalShader;  // Bu değişkenler kullanılmıyor, kaldırılabilir
-GLuint particleShader; // Bu değişkenler kullanılmıyor, kaldırılabilir
 GLuint quadVAO, quadVBO;
 
 // Uniform lokasyonları
@@ -25,7 +23,7 @@ GLint juliaParamLocation;
 GLint modeLocation;
 GLint complexityLocation;
 
-// Fraktal parametreleri - Geliştirilmiş
+// Fraktal parametreleri
 float zoom = 2.5f;
 float offsetX = 0.0f;
 float offsetY = 0.0f;
@@ -79,13 +77,13 @@ const char *fragmentShaderSource = R"(
         vec3 c1 = vec3(1.0, 0.0, 0.5); // Magenta
         vec3 c2 = vec3(0.0, 1.0, 0.8); // Turkuaz
         vec3 c3 = vec3(1.0, 0.8, 0.0); // Turuncu
-        vec3 c4 = vec3(0.5, 0.0, 1.0); // Mor
+        vec4 c4 = vec4(0.5, 0.0, 1.0, 1.0); // Mor (alpha ile uyum için)
 
         t = fract(t + time * 0.2); // Daha hızlı kayma
         if (t < 0.25) return mix(c1, c2, smoothstep(0.0, 1.0, t * 4.0));
         else if (t < 0.5) return mix(c2, c3, smoothstep(0.0, 1.0, (t - 0.25) * 4.0));
-        else if (t < 0.75) return mix(c3, c4, smoothstep(0.0, 1.0, (t - 0.5) * 4.0));
-        else return mix(c4, c1, smoothstep(0.0, 1.0, (t - 0.75) * 4.0));
+        else if (t < 0.75) return mix(c3, c4.rgb, smoothstep(0.0, 1.0, (t - 0.5) * 4.0));
+        else return mix(c4.rgb, c1, smoothstep(0.0, 1.0, (t - 0.75) * 4.0));
     }
 
     vec3 quantumFlux(float t) {
