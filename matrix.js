@@ -2,6 +2,7 @@ let gl;
 let program;
 let startTime;
 let texture;
+let video;
 
 // Vertex shader program
 const vsSource = `
@@ -97,12 +98,59 @@ const fsSource = `
             }
         }
         
-        result = result * 0.5 + 0.22 * vec4(0.0, 1.0, 0.0, 1.0);
+        vec4 videoColor = texture2D(iChannel0, vTextureCoord);
+        result = result + videoColor * 0.5;
         if(result.b < 0.5)
             result.b = result.g * 0.5;
         gl_FragColor = result;
     }
 `;
+
+function initVideo() {
+    video = document.createElement('video');
+    video.src = 'video.mp4';
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = true;
+    video.crossOrigin = "anonymous";
+
+    // Video yükleme hatası yakalama
+    video.onerror = function (e) {
+        console.error("Video yükleme hatası:", e);
+    };
+
+    // Video yüklendiğinde bilgi verme
+    video.onloadeddata = function () {
+        console.log("Video başarıyla yüklendi");
+    };
+
+    video.play().catch(function (error) {
+        console.log("Video oynatma hatası:", error);
+    });
+    return video;
+}
+
+function initTexture(gl) {
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+
+    // Fill the texture with a 1x1 blue pixel until the video loads
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+        new Uint8Array([0, 0, 255, 255]));
+
+    // Set texture parameters
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+    return texture;
+}
+
+function updateTexture(gl, texture, video) {
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+}
 
 function initGL() {
     const canvas = document.querySelector("#glCanvas");
@@ -112,6 +160,10 @@ function initGL() {
         alert("Unable to initialize WebGL. Your browser may not support it.");
         return;
     }
+
+    // Initialize video and texture
+    video = initVideo();
+    texture = initTexture(gl);
 
     // Initialize shaders
     const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
@@ -141,10 +193,10 @@ function initGL() {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
     const textureCoordinates = [
-        0.0, 0.0,
-        1.0, 0.0,
         0.0, 1.0,
         1.0, 1.0,
+        0.0, 0.0,
+        1.0, 0.0,
     ];
 
     const textureCoordBuffer = gl.createBuffer();
@@ -193,12 +245,23 @@ function render(buffers, now) {
 
     gl.useProgram(program);
 
+    // Update video texture
+    if (video.readyState >= 2) {
+        updateTexture(gl, texture, video);
+    }
+
     // Set uniforms
     const timeLocation = gl.getUniformLocation(program, 'iTime');
     const resolutionLocation = gl.getUniformLocation(program, 'iResolution');
+    const textureLocation = gl.getUniformLocation(program, 'iChannel0');
 
     gl.uniform1f(timeLocation, time);
     gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
+
+    // Set up texture unit 0
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.uniform1i(textureLocation, 0);
 
     // Set position attribute
     const positionLocation = gl.getAttribLocation(program, 'aVertexPosition');
