@@ -23,19 +23,32 @@ const fsSource = `
     uniform sampler2D iChannel0;
     varying vec2 vTextureCoord;
 
-    #define RAIN_SPEED 1.75
-    #define DROP_SIZE  3.0
-
+    #define RAIN_SPEED 2.0    // Orta hızda yağmur
+    #define DROP_SIZE  2.0    // Orta boyutta karakterler
+    #define FADE_START 1.0    // 1 saniye sonra solmaya başlasın
+    #define FADE_DURATION 8.0 // 8 saniye boyunca yavaşça solsun
+    
     float rand(vec2 co){
         return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
     }
 
     float rchar(vec2 outer, vec2 inner, float globalTime) {
         vec2 seed = floor(inner * 4.0) + outer.y;
-        if (rand(vec2(outer.y, 23.0)) > 0.98) {
+        if (rand(vec2(outer.y, 23.0)) > 0.95) {
             seed += floor((globalTime + rand(vec2(outer.y, 49.0))) * 3.0);
         }
-        return float(rand(seed) > 0.5);
+        return float(rand(seed) > 0.45);
+    }
+
+    float getEffectStrength(float time) {
+        // Başlangıçta tam güçte başla
+        float initialStrength = 1.0;
+        
+        // Zamanla azalan bir değer hesapla (1.0'dan 0.2'ye)
+        float fadeOut = 1.0 - smoothstep(FADE_START, FADE_START + FADE_DURATION, time);
+        
+        // En düşük opaklık 0.2 olsun
+        return 0.2 + (fadeOut * 0.8);
     }
 
     void main() {
@@ -45,9 +58,12 @@ const fsSource = `
         position.x *= iResolution.x / iResolution.y;
         float globalTime = iTime * RAIN_SPEED;
         
+        // Efekt gücünü hesapla
+        float effectStrength = getEffectStrength(iTime);
+        
         float scaledown = DROP_SIZE;
-        float rx = fragCoord.x / (40.0 * scaledown);
-        float mx = 40.0*scaledown*fract(position.x * 30.0 * scaledown);
+        float rx = fragCoord.x / (35.0 * scaledown);
+        float mx = 35.0*scaledown*fract(position.x * 35.0 * scaledown);
         vec4 result;
         
         if (mx > 12.0 * scaledown) {
@@ -74,8 +90,8 @@ const fsSource = `
         position.x += 0.05;
         
         scaledown = DROP_SIZE;
-        rx = fragCoord.x / (40.0 * scaledown);
-        mx = 40.0*scaledown*fract(position.x * 30.0 * scaledown);
+        rx = fragCoord.x / (35.0 * scaledown);
+        mx = 35.0*scaledown*fract(position.x * 35.0 * scaledown);
         
         if (mx > 12.0 * scaledown) {
             result += vec4(0.0);
@@ -99,7 +115,8 @@ const fsSource = `
         }
         
         vec4 videoColor = texture2D(iChannel0, vTextureCoord);
-        result = result + videoColor * 0.5;
+        // Matrix efektini zamanla karıştır
+        result = mix(videoColor, result * 0.6 + videoColor * 0.4, effectStrength);
         if(result.b < 0.5)
             result.b = result.g * 0.5;
         gl_FragColor = result;
